@@ -1,0 +1,23 @@
+tel-plugin-indicator (0.1.2) unstable; urgency=low
+
+  * Fix prefix (TAPI_ to TCORE_)
+  * Git: pkgs/t/tel-plugin-indicator
+  * Tag: tel-plugin-indicator_0.1.2
+
+ -- Inho Oh <inho48.oh@samsung.com>  Tue, 27 Mar 2012 22:17:37 +0900
+
+tel-plugin-indicator (0.1.1) unstable; urgency=low
+
+  * Add .spec for OBS
+  * Git: pkgs/t/tel-plugin-indicator
+  * Tag: tel-plugin-indicator_0.1.1
+
+ -- DongHoo Park <donghoo.park@samsung.com>  Fri, 16 Mar 2012 21:31:53 +0900
+
+tel-plugin-indicator (0.1.0) unstable; urgency=low
+
+  * Initial
+  * Git: pkgs/t/tel-plugin-indicator
+  * Tag: tel-plugin-indicator_0.1.0
+
+ -- Inho Oh <inho48.oh@samsung.com>  Thu, 15 Mar 2012 22:37:29 +0900
