@@ -1,7 +1,7 @@
 #sbs-git:slp/pkgs/t/tel-plugin-indicator
 Name:       tel-plugin-indicator
 Summary:    Telephony Indicator plugin
-Version: 0.1.1
+Version: 0.1.4
 Release:    1
 Group:      System/Libraries
 License:    Apache

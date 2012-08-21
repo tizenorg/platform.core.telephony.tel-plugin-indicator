@@ -275,6 +275,25 @@ static gboolean _indicator_update_callback(gpointer user_data)
 	return TRUE;
 }
 
+static enum tcore_hook_return __on_hook_powered(Server *s, CoreObject *source,
+		enum tcore_notification_command command, unsigned int data_len, void *data, void *user_data)
+{
+	struct tnoti_modem_power *modem_power = NULL;
+
+	dbg("powered event called");
+	g_return_val_if_fail(data != NULL, TCORE_HOOK_RETURN_STOP_PROPAGATION);
+
+	modem_power = (struct tnoti_modem_power *)data;
+	if ( modem_power->state == MODEM_STATE_ERROR ){
+		indicator_info.active = FALSE;
+		g_free(indicator_info.devname);
+		indicator_info.devname = NULL;
+		_indicator_stop_updater(s);
+	}
+
+	return TCORE_HOOK_RETURN_CONTINUE;
+}
+
 static enum tcore_hook_return __on_hook_callstatus(Server *s, CoreObject *source,
 		enum tcore_notification_command command, unsigned int data_len, void *data,
 		void *user_data)
@@ -323,6 +342,7 @@ static gboolean on_init(TcorePlugin *p)
 {
 	Server *s = NULL;
 	s = tcore_plugin_ref_server(p);
+	tcore_server_add_notification_hook(s, TNOTI_MODEM_POWER, __on_hook_powered, NULL);
 	tcore_server_add_notification_hook(s, TNOTI_PS_CALL_STATUS, __on_hook_callstatus, NULL);
 	dbg("initialized Indicator plugin!");
 	return TRUE;
