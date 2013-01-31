@@ -36,5 +36,5 @@ TARGET_LINK_LIBRARIES(indicator-plugin ${pkgs_LDFLAGS})
 SET_TARGET_PROPERTIES(indicator-plugin PROPERTIES PREFIX "" OUTPUT_NAME indicator-plugin)
 
 # install
-INSTALL(TARGETS indicator-plugin LIBRARY DESTINATION lib/telephony/plugins)
+INSTALL(TARGETS indicator-plugin LIBRARY DESTINATION ${LIB_INSTALL_DIR}/telephony/plugins)
 INSTALL(FILES ${CMAKE_SOURCE_DIR}/LICENSE DESTINATION /usr/share/license RENAME tel-plugin-indicator)

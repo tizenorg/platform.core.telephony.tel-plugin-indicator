@@ -1,7 +1,6 @@
-#sbs-git:slp/pkgs/t/tel-plugin-indicator
 Name:       tel-plugin-indicator
 Summary:    Telephony Indicator plugin
-Version: 0.1.7
+Version:    0.1.7
 Release:    2
 Group:      System/Libraries
 License:    Apache
@@ -20,7 +19,7 @@ Telephony Indicator plugin
 %setup -q
 
 %build
-cmake . -DCMAKE_INSTALL_PREFIX=%{_prefix}
+%cmake .
 make %{?jobs:-j%jobs}
 
 %post 
@@ -29,13 +28,11 @@ make %{?jobs:-j%jobs}
 %postun -p /sbin/ldconfig
 
 %install
-rm -rf %{buildroot}
 %make_install
 mkdir -p %{buildroot}/usr/share/license
 
 %files
 %manifest tel-plugin-indicator.manifest
 %defattr(-,root,root,-)
-#%doc COPYING
 %{_libdir}/telephony/plugins/indicator-plugin*
 /usr/share/license/tel-plugin-indicator
