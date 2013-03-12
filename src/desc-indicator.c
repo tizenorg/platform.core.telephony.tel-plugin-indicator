@@ -44,12 +44,6 @@ typedef enum _indicator_state {
 	INDICATOR_ONLINE = 0x03,
 } indicator_state;
 
-typedef enum _ps_call_state {
-	PS_CALL_STATE_RESULT_OK = 0x00,
-	PS_CALL_STATE_RESULT_CONNECT = 0x01,
-	PS_CALL_STATE_RESULT_NO_CARRIER = 0x03,
-} ps_call_state;
-
 struct indicator_device_state {
 	gchar *devname;
 	gboolean active;
@@ -303,7 +297,7 @@ static enum tcore_hook_return __on_hook_callstatus(Server *s, CoreObject *source
 		enum tcore_notification_command command, unsigned int data_len, void *data,
 		void *user_data)
 {
-	int con_id = 0;
+	unsigned int con_id = 0;
 	CoreObject *co_ps = NULL, *co_context = NULL;
 	struct tnoti_ps_call_status *cstatus = NULL;
 
@@ -317,17 +311,17 @@ static enum tcore_hook_return __on_hook_callstatus(Server *s, CoreObject *source
 	dbg("context(%p) con_id(%d)", co_context, con_id);
 
 	cstatus = (struct tnoti_ps_call_status *) data;
-	dbg("call status event cid(%d) state(%d) reason(%d)", cstatus->context_id, cstatus->state, cstatus->result);
+	dbg("call status event cid(%d) state(%d)", cstatus->context_id, cstatus->state);
 
 	if(con_id != cstatus->context_id)
 		return TCORE_HOOK_RETURN_CONTINUE;
 
-	if (cstatus->state == PS_CALL_STATE_RESULT_OK) {
+	if (cstatus->state == PS_DATA_CALL_CTX_DEFINED) {
 		/* do nothing. */
 		dbg("Just noti for PDP define complete, do nothing.");
 		return TCORE_HOOK_RETURN_CONTINUE;
 	}
-	else if (cstatus->state == PS_CALL_STATE_RESULT_CONNECT) {
+	else if (cstatus->state == PS_DATA_CALL_CONNECTED) {
 		indicator_info.active = TRUE;
 		indicator_info.devname = tcore_context_get_ipv4_devname(co_context);
 		_indicator_start_updater(s);
