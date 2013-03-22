@@ -180,6 +180,7 @@ static gboolean _indicator_get_pktcnt(gpointer user_data)
 {
 	FILE *pf = NULL;
 	gint proc_ver = 0;
+	char *res;
 	gchar buff[INDICATOR_BUFF_SIZE];
 
 	pf = fopen(INDICATOR_PROCFILE, "r");
@@ -188,8 +189,12 @@ static gboolean _indicator_get_pktcnt(gpointer user_data)
 		return FALSE;
 	}
 
-	fgets(buff, sizeof(buff), pf);
-	fgets(buff, sizeof(buff), pf);
+	res = fgets(buff, sizeof(buff), pf);
+	if (res == NULL)
+		err("fegts fails");
+	res = fgets(buff, sizeof(buff), pf);
+	if (res == NULL)
+		err("fegts fails");
 	proc_ver = _indicator_get_proc_ver(buff);
 
 	while (fgets(buff, sizeof(buff), pf)) {
