@@ -38,10 +38,19 @@
 #define DATABASE_PATH		"/opt/dbspace/.dnet.db"
 #define NO_RX_PKT_TIMEOUT	30
 //enum
+
+typedef enum _cellular_state {
+	CELLULAR_OFF = 0x00,
+	CELLULAR_NORMAL_CONNECTED = 0x01,
+	CELLULAR_SECURE_CONNECTED = 0x02,
+	CELLULAR_USING = 0x03,
+} cellular_state;
+
 typedef enum _indicator_state {
-	INDICATOR_OFF = 0x00,
-	INDICATOR_ON = 0x01,
-	INDICATOR_ONLINE = 0x03,
+	INDICATOR_NORMAL = 0x00,
+	INDICATOR_RX = 0x01,
+	INDICATOR_TX = 0x02,
+	INDICATOR_RXTX = 0x03,
 } indicator_state;
 
 struct indicator_device_state {
@@ -81,7 +90,8 @@ static gboolean _indicator_start_updater(Server *s)
 	if (!vconf_handle)
 		err("fail to create vconf db_handle");
 
-	tcore_storage_set_int(strg_vconf, STORAGE_KEY_PACKET_SERVICE_STATE, INDICATOR_ON);
+	tcore_storage_set_int(strg_vconf, STORAGE_KEY_PACKET_SERVICE_STATE, CELLULAR_NORMAL_CONNECTED);
+	tcore_storage_set_int(strg_vconf, STORAGE_KEY_PACKET_INDICATOR_STATE, INDICATOR_NORMAL);
 
 	if(src != 0)
 		return FALSE;
@@ -109,7 +119,8 @@ static gboolean _indicator_stop_updater(Server *s)
 	if (!vconf_handle)
 		err("fail to create vconf db_handle");
 
-	tcore_storage_set_int(strg_vconf, STORAGE_KEY_PACKET_SERVICE_STATE, INDICATOR_OFF);
+	tcore_storage_set_int(strg_vconf, STORAGE_KEY_PACKET_SERVICE_STATE, CELLULAR_OFF);
+	tcore_storage_set_int(strg_vconf, STORAGE_KEY_PACKET_INDICATOR_STATE, INDICATOR_NORMAL);
 
 	t_rx = tcore_storage_get_int(strg_vconf, STORAGE_KEY_CELLULAR_PKT_TOTAL_RCV);
 	t_tx = tcore_storage_get_int(strg_vconf, STORAGE_KEY_CELLULAR_PKT_TOTAL_SNT);
@@ -231,7 +242,8 @@ static gboolean _indicator_get_pktcnt(gpointer user_data)
 
 static gboolean _indicator_update(Server *s)
 {
-	gint pkt_state = 0;
+	guint64 rx_changes = 0;
+	guint64 tx_changes = 0;
 	Storage *strg_vconf;
 	gpointer vconf_handle;
 
@@ -240,19 +252,24 @@ static gboolean _indicator_update(Server *s)
 	if (!vconf_handle)
 		err("fail to create vconf db_handle");
 
-	pkt_state  = tcore_storage_get_int(strg_vconf, STORAGE_KEY_PACKET_SERVICE_STATE);
-
 	if(!indicator_info.active) return FALSE;
 
-	if ((indicator_info.curr_rx > indicator_info.prev_rx)
-			|| (indicator_info.curr_tx > indicator_info.prev_tx)) {
-		if(pkt_state != INDICATOR_ONLINE)
-			tcore_storage_set_int(strg_vconf, STORAGE_KEY_PACKET_SERVICE_STATE, INDICATOR_ONLINE);
-	}
-	else{ //rx, tx are the same as before
-		if(pkt_state != INDICATOR_ON)
-			tcore_storage_set_int(strg_vconf, STORAGE_KEY_PACKET_SERVICE_STATE, INDICATOR_ON);
-	}
+	rx_changes = indicator_info.curr_rx - indicator_info.prev_rx;
+	tx_changes = indicator_info.curr_tx - indicator_info.prev_tx;
+
+	if (rx_changes != 0 || tx_changes != 0)
+		tcore_storage_set_int(strg_vconf, STORAGE_KEY_PACKET_SERVICE_STATE, CELLULAR_USING);
+	else
+		tcore_storage_set_int(strg_vconf, STORAGE_KEY_PACKET_SERVICE_STATE, CELLULAR_NORMAL_CONNECTED);
+
+	if (rx_changes > 0 && tx_changes > 0)
+		tcore_storage_set_int(strg_vconf, STORAGE_KEY_PACKET_INDICATOR_STATE, INDICATOR_RXTX);
+	else if (rx_changes > 0 && tx_changes == 0)
+		tcore_storage_set_int(strg_vconf, STORAGE_KEY_PACKET_INDICATOR_STATE, INDICATOR_RX);
+	else if (rx_changes == 0 && tx_changes > 0)
+		tcore_storage_set_int(strg_vconf, STORAGE_KEY_PACKET_INDICATOR_STATE, INDICATOR_TX);
+	else
+		tcore_storage_set_int(strg_vconf, STORAGE_KEY_PACKET_INDICATOR_STATE, INDICATOR_NORMAL);
 
 	return TRUE;
 }
