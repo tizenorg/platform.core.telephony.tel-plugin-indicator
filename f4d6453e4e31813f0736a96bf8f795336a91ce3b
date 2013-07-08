@@ -1,0 +1,8 @@
+Change-Id: If4d6453e4e31813f0736a96bf8f795336a91ce3b
+Code-Review+2: Ryan Ware <ware@linux.intel.com>
+Verified+1: Ryan Ware <ware@linux.intel.com>
+Submitted-by: Ryan Ware <ware@linux.intel.com>
+Submitted-at: Mon, 08 Jul 2013 10:06:44 -0700
+Reviewed-on: https://review.tizen.org/gerrit/4549
+Project: platform/core/telephony/tel-plugin-indicator
+Branch: refs/heads/tizen
