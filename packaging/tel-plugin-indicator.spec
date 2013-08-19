@@ -1,6 +1,6 @@
 Name:       tel-plugin-indicator
 Summary:    Telephony Indicator plugin
-Version:    0.1.7
+Version:    0.1.8
 Release:    2
 Group:      System/Libraries
 License:    Apache
