@@ -35,7 +35,6 @@
 #define INDICATOR_UPDATE_INTERVAL	1
 #define INDICATOR_PROCFILE		"/proc/net/dev"
 #define INDICATOR_BUFF_SIZE		4096
-#define DATABASE_PATH		"/opt/dbspace/.dnet.db"
 #define NO_RX_PKT_TIMEOUT	30
 //enum
 
