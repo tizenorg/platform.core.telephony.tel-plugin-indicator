@@ -1,7 +1,11 @@
+%define major 3
+%define minor 0
+%define patchlevel 1
+
 Name:       tel-plugin-indicator
 Summary:    Telephony Indicator plugin
-Version:    0.1.8
-Release:    2
+Version:        %{major}.%{minor}.%{patchlevel}
+Release:    1
 Group:      System/Libraries
 License:    Apache-2.0
 Source0:    tel-plugin-indicator-%{version}.tar.gz
