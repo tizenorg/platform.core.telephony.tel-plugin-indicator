@@ -15,6 +15,7 @@ Requires(postun): /sbin/ldconfig
 BuildRequires:  cmake
 BuildRequires:  pkgconfig(glib-2.0)
 BuildRequires:  pkgconfig(tcore)
+BuildRequires:  pkgconfig(tel-headers)
 
 %description
 Telephony Indicator plugin
