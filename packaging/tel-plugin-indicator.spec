@@ -1,35 +1,42 @@
-%define major 3
-%define minor 0
-%define patchlevel 1
+%define major 0
+%define minor 1
+%define patchlevel 62
 
-Name:       tel-plugin-indicator
-Summary:    Telephony Indicator plugin
+Name:           tel-plugin-indicator
 Version:        %{major}.%{minor}.%{patchlevel}
-Release:    1
-Group:      System/Libraries
-License:    Apache-2.0
-Source0:    tel-plugin-indicator-%{version}.tar.gz
-Source1001: 	tel-plugin-indicator.manifest
+Release:        5
+License:        Apache-2.0
+Summary:        Telephony Indicator plugin
+Group:          System/Libraries
+Source0:        tel-plugin-indicator-%{version}.tar.gz
+BuildRequires:  cmake
+BuildRequires:  pkgconfig(deviced)
+BuildRequires:  pkgconfig(dlog)
+BuildRequires:  pkgconfig(glib-2.0)
+BuildRequires:  pkgconfig(vconf)
+BuildRequires:  pkgconfig(tcore)
 Requires(post): /sbin/ldconfig
 Requires(postun): /sbin/ldconfig
-BuildRequires:  cmake
-BuildRequires:  pkgconfig(glib-2.0)
-BuildRequires:  pkgconfig(tcore)
-BuildRequires:  pkgconfig(tel-headers)
 
 %description
 Telephony Indicator plugin
 
 %prep
 %setup -q
-cp %{SOURCE1001} .
 
 %build
-%cmake .
-make %{?jobs:-j%jobs}
+versionint=$[%{major} * 1000000 + %{minor} * 1000 + %{patchlevel}]
 
-%post 
+%cmake . -DVERSION=$versionint \
+
+make %{?_smp_mflags}
+
+%post
 /sbin/ldconfig
+
+##setting vconf key##
+vconftool set -t bool memory/testmode/fast_dormancy 0 -i -f -s telephony_framework::vconf
+vconftool set -t bool memory/testmode/fast_dormancy2 0 -i -f -s telephony_framework::vconf
 
 %postun -p /sbin/ldconfig
 
@@ -39,7 +46,7 @@ mkdir -p %{buildroot}/usr/share/license
 cp LICENSE %{buildroot}/usr/share/license/%{name}
 
 %files
-%manifest %{name}.manifest
+%manifest tel-plugin-indicator.manifest
 %defattr(-,root,root,-)
 %{_libdir}/telephony/plugins/indicator-plugin*
 /usr/share/license/%{name}
