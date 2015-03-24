@@ -1,6 +1,9 @@
 CMAKE_MINIMUM_REQUIRED(VERSION 2.6)
 PROJECT(indicator-plugin C)
 
+SET(PREFIX ${CMAKE_INSTALL_PREFIX})
+SET(LIBDIR ${LIB_INSTALL_DIR})
+
 ### Set required packages ###
 INCLUDE(FindPkgConfig)
 pkg_check_modules(pkgs REQUIRED glib-2.0 dlog deviced tcore vconf)
@@ -51,5 +54,5 @@ SET_TARGET_PROPERTIES(indicator-plugin
 		COMPILE_DEFINITIONS "${PROFILE_DEFINITIONS}")
 # install
 INSTALL(TARGETS ${PLUGIN_NAME} LIBRARY DESTINATION ${PLUGIN_DEST})
-INSTALL(TARGETS indicator-plugin LIBRARY DESTINATION ${LIB_INSTALL_DIR}/telephony/plugins)
+INSTALL(TARGETS indicator-plugin LIBRARY DESTINATION ${LIBDIR}/telephony/plugins)
 INSTALL(FILES ${CMAKE_SOURCE_DIR}/LICENSE DESTINATION /usr/share/license RENAME tel-plugin-indicator)
