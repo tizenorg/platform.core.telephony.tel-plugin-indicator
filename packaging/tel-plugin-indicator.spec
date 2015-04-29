@@ -26,6 +26,7 @@ Telephony Indicator plugin
 
 %build
 versionint=$[%{major} * 1000000 + %{minor} * 1000 + %{patchlevel}]
+CFLAGS+=" -fgnu89-inline "
 
 %cmake . -DCMAKE_INSTALL_PREFIX=%{_prefix} \
 	-DLIB_INSTALL_DIR=%{_libdir} \
