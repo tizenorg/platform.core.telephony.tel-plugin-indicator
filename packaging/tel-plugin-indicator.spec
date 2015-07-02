@@ -1,6 +1,6 @@
 %define major 0
 %define minor 1
-%define patchlevel 66
+%define patchlevel 67
 
 Name:           tel-plugin-indicator
 Version:        %{major}.%{minor}.%{patchlevel}

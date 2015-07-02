@@ -33,7 +33,7 @@ enum {
 #else
 #define s_indi_log_v(...) \
 	do { \
-	} while (0);
+	} while (0)
 #endif
 
 #ifdef FEATURE_LOG_TX_RX_DATA
@@ -41,11 +41,11 @@ enum {
 	do { \
 		const char *tag = s_indi_get_log_tag_with_id(id); \
 		info_ex(tag, __VA_ARGS__); \
-	} while (0);
+	} while (0)
 #else
 #define s_indi_log_txrx(id,...) \
 	do { \
-	} while (0);
+	} while (0)
 #endif
 
 #define s_indi_log_ex(name,...) \
@@ -53,7 +53,7 @@ enum {
 		gchar *tag = s_indi_get_log_tag_with_cp_name(name); \
 		dbg_ex(tag, __VA_ARGS__); \
 		g_free(tag); \
-	} while (0);
+	} while (0)
 
 inline const char *s_indi_get_log_tag_with_id(unsigned int modem_id);
 inline char *s_indi_get_log_tag_with_cp_name(const char *cp_name);

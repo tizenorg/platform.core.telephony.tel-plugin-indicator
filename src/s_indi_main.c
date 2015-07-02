@@ -257,7 +257,7 @@ gboolean __s_indi_update_callback(__s_indi_cb_user_data *data)
 	FILE *pf = NULL;
 	gchar *rv = NULL;
 	unsigned long long rx_curr_total = S_INDI_ZERO, tx_curr_total = S_INDI_ZERO, rx_prev_total = S_INDI_ZERO, tx_prev_total = S_INDI_ZERO;
-	unsigned long rx_changes_total = S_INDI_ZERO, tx_changes_total = S_INDI_ZERO;
+	unsigned long long rx_changes_total = S_INDI_ZERO, tx_changes_total = S_INDI_ZERO;
 	s_indi_transfer_state cp_state = S_INDI_TRANSFER_NORMAL; /* Assume no activity */
 	enum tcore_storage_key key_last_rcv, key_last_snt, key_total_rcv, key_total_snt, key_service_state;
 	s_indi_private_info *priv_info = __s_indi_get_priv_info(indi_plugin);
@@ -336,7 +336,7 @@ gboolean __s_indi_update_callback(__s_indi_cb_user_data *data)
 		/* Takes care of the fix: Fix the PLM p131003-03182. Sha-ID: 65544f0be8e60ae3f964921755a1e83fa8e71441*/
 		if ((dev_state = g_hash_table_lookup(state_info->device_info, ifname)) != NULL) {
 			gint result = S_INDI_ZERO;
-			unsigned long rx_pkt = S_INDI_ZERO, tx_pkt = S_INDI_ZERO;
+			unsigned long long rx_pkt = S_INDI_ZERO, tx_pkt = S_INDI_ZERO;
 			/************************************************************************
 			Sample Input of S_INDI_PROC_FILE
 			************************************************************************
@@ -346,7 +346,7 @@ gboolean __s_indi_update_callback(__s_indi_cb_user_data *data)
 			  eth0: 2714004148 6475059    0    0    0     0          0         0 72595891 8726308    0    0    0     0       0          0
 			************************************************************************/
 			s_indi_log_v("Reading stats of interface %s", ifname);
-			result = sscanf(entry, "%lu %*s %*s %*s %*s %*s %*s %*s %lu %*s %*s %*s %*s %*s %*s %*s", &rx_pkt, &tx_pkt);
+			result = sscanf(entry, "%llu %*s %*s %*s %*s %*s %*s %*s %llu %*s %*s %*s %*s %*s %*s %*s", &rx_pkt, &tx_pkt);
 			if (result <= S_INDI_ZERO) {
 				err("stats fail to get proc field => %d", result);
 				goto EXIT; /** @todo: REMOVE or CONTINUE ? */
@@ -376,7 +376,8 @@ gboolean __s_indi_update_callback(__s_indi_cb_user_data *data)
 		cp_state |= S_INDI_TRANSFER_TX;
 
 	if (cp_state > 0)
-		s_indi_log_txrx(modem_id, "Transfer State: [%d] RX: [%10lu] TX: [%10lu]", cp_state, rx_changes_total, tx_changes_total);
+		s_indi_log_txrx(modem_id, "Transfer State:[%d] RX: [%llu / %llu] TX: [%llu / %llu]",
+			cp_state, rx_changes_total, rx_curr_total, tx_changes_total, tx_curr_total);
 
 	if (state_info->dormant_info.lcd_state < S_INDI_LCD_OFF) {
 		if (state_info->cp_trans_state != cp_state) { /* New Transfer State */
@@ -386,10 +387,11 @@ gboolean __s_indi_update_callback(__s_indi_cb_user_data *data)
 			state_info->cp_trans_state = cp_state;
 			tcore_storage_set_int(strg_vconf, STORAGE_KEY_PACKET_INDICATOR_STATE, cp_state);
 			if (cp_state != S_INDI_TRANSFER_NORMAL) { /* Data activity */
-				s_indi_log_txrx(modem_id, "pkt_state[%d] rx_changes [%lu] tx_changes [%lu]",
-					cp_state, rx_changes_total, tx_changes_total);
-				tcore_storage_set_int(strg_vconf, key_last_rcv, rx_curr_total/1000);
-				tcore_storage_set_int(strg_vconf, key_last_snt, tx_curr_total/1000);
+				/** @todo: VCONF needs upgrade to support llu */
+				tcore_storage_set_int(strg_vconf, key_last_rcv, (int)(rx_curr_total/1000ULL));
+				tcore_storage_set_int(strg_vconf, key_last_snt, (int)(tx_curr_total/1000ULL));
+
+				s_indi_log_txrx(modem_id, "VCONF LAST- RX: [%d] TX: [%d]", (int)(rx_curr_total/1000ULL), (int)(tx_curr_total/1000ULL));
 			}
 		}
 	}
@@ -418,8 +420,12 @@ EXIT:
 		tcore_storage_set_int(strg_vconf, key_total_rcv, tcore_storage_get_int(strg_vconf, key_total_rcv) + state_info->rx_total);
 		tcore_storage_set_int(strg_vconf, key_total_snt, tcore_storage_get_int(strg_vconf, key_total_snt) + state_info->tx_total);
 
+		/* After updating total vconf key, last vconf key needs to be reset */
+		tcore_storage_set_int(strg_vconf, key_last_rcv, 0);
+		tcore_storage_set_int(strg_vconf, key_last_snt, 0);
+
 		/** @todo: VCONF needs upgrade to support llu */
-		s_indi_log_txrx(modem_id, "RX-TOTAL [%d] TX-TOTAL [%d]",
+		s_indi_log_txrx(modem_id, "VCONF TOTAL- RX: [%d] TX: [%d]",
 			tcore_storage_get_int(strg_vconf, key_total_rcv), tcore_storage_get_int(strg_vconf, key_total_snt));
 		state_info->rx_total = S_INDI_ZERO;
 		state_info->tx_total = S_INDI_ZERO;
@@ -434,7 +440,8 @@ void __s_indi_state_info_value_destroy_notification(gpointer data)
 	s_indi_cp_state_info_type *state_info = data;
 	const char *cp_name = NULL;
 	Storage *strg_vconf = NULL;
-	enum tcore_storage_key key_total_rcv, key_total_snt;
+	enum tcore_storage_key key_last_rcv, key_last_snt, key_total_rcv, key_total_snt;
+	unsigned int modem_id;
 	s_indi_assert(NULL != state_info);
 	s_indi_assert(NULL != state_info->co_ps);
 
@@ -444,11 +451,17 @@ void __s_indi_state_info_value_destroy_notification(gpointer data)
 
 	/* VCONF Mapper */
 	if (s_indi_str_has_suffix(cp_name, "0")) {
+		key_last_rcv = STORAGE_KEY_CELLULAR_PKT_LAST_RCV;
+		key_last_snt = STORAGE_KEY_CELLULAR_PKT_LAST_SNT;
 		key_total_rcv = STORAGE_KEY_CELLULAR_PKT_TOTAL_RCV;
 		key_total_snt = STORAGE_KEY_CELLULAR_PKT_TOTAL_SNT;
+		modem_id = MODEM_ID_PRIMARY;
 	} else if (s_indi_str_has_suffix(cp_name, "1")) {
+		key_last_rcv = STORAGE_KEY_CELLULAR_PKT_LAST_RCV2;
+		key_last_snt = STORAGE_KEY_CELLULAR_PKT_LAST_SNT2;
 		key_total_rcv = STORAGE_KEY_CELLULAR_PKT_TOTAL_RCV2;
 		key_total_snt = STORAGE_KEY_CELLULAR_PKT_TOTAL_SNT2;
+		modem_id = MODEM_ID_SECONDARY;
 	} else {
 		err("Unhandled CP Name %s", cp_name);
 		s_indi_assert_not_reached();
@@ -463,8 +476,13 @@ void __s_indi_state_info_value_destroy_notification(gpointer data)
 	/* Update VCONF before dying */
 	tcore_storage_set_int(strg_vconf, key_total_rcv, tcore_storage_get_int(strg_vconf, key_total_rcv) + state_info->rx_total);
 	tcore_storage_set_int(strg_vconf, key_total_snt, tcore_storage_get_int(strg_vconf, key_total_snt) + state_info->tx_total);
-	dbg("CP [%s] RX-TOTAL [%10llu] TX-TOTAL [%10llu]", cp_name,
-		tcore_storage_get_int(strg_vconf, key_total_rcv), tcore_storage_get_int(strg_vconf, key_total_snt));
+
+	/* After updating total vconf key, last vconf key needs to be reset */
+	tcore_storage_set_int(strg_vconf, key_last_rcv, 0);
+	tcore_storage_set_int(strg_vconf, key_last_snt, 0);
+
+	s_indi_log_txrx(modem_id, "VCONF TOTAL -RX: [%d] TX: [%d]",
+			tcore_storage_get_int(strg_vconf, key_total_rcv), tcore_storage_get_int(strg_vconf, key_total_snt));
 
 OUT:
 	s_indi_free(data);
@@ -479,11 +497,11 @@ void __s_indi_dev_info_value_destroy_notification(gpointer data)
 	s_indi_assert(NULL != state_info);
 
 	/* Update parent before dying */
-	state_info->rx_total += dev_state->curr_rx/1000;
-	state_info->tx_total += dev_state->curr_tx/1000;
+	state_info->rx_total += dev_state->curr_rx/1000ULL;
+	state_info->tx_total += dev_state->curr_tx/1000ULL;
 
-	s_indi_log_v("DYING after contributing [RX: %lu][TX: %lu] OUT OF [RX: %llu][TX: %llu]",
-		dev_state->curr_rx/1000, dev_state->curr_tx/1000,
+	dbg("DYING after contributing [RX: %llu][TX: %llu] OUT OF [RX: %llu][TX: %llu]",
+		dev_state->curr_rx/1000ULL, dev_state->curr_tx/1000ULL,
 		state_info->rx_total, state_info->tx_total);
 
 	s_indi_free(data);
@@ -493,7 +511,7 @@ void __s_indi_refresh_modems(TcorePlugin *indi_plugin)
 {
 	GSList *mp_list = tcore_server_get_modem_plugin_list(tcore_plugin_ref_server(indi_plugin));
 	GSList *tmp;
-	s_indi_log_v("Processing %u present modems", g_slist_length(mp_list));
+	dbg("Processing %u present modems", g_slist_length(mp_list));
 
 	for (tmp = mp_list; tmp; tmp = tmp->next)
 		__s_indi_add_modem_plugin(indi_plugin, tmp->data);
@@ -593,8 +611,10 @@ enum tcore_hook_return s_indi_on_hook_ps_call_status(Server *server, CoreObject 
 	s_indi_log_ex(cp_name, "cid(%d) state(%d) reason(%d)",
 		cstatus->context_id, cstatus->state, cstatus->result);
 
-	if (cstatus->state == S_INDI_PS_CALL_OK)
+	if (cstatus->state == S_INDI_PS_CALL_OK) {
+		s_indi_log_ex(cp_name, "PS Call state - [PS_CALL_OK]");
 		return TCORE_HOOK_RETURN_CONTINUE;
+	}
 
 	if ((state_info = g_hash_table_lookup(priv_info->state_info, cp_name)) == NULL) {
 		warn("BAILING OUT: [%s] not found", cp_name);
@@ -613,6 +633,8 @@ enum tcore_hook_return s_indi_on_hook_ps_call_status(Server *server, CoreObject 
 		int role = CONTEXT_ROLE_UNKNOWN;
 		gboolean data_allowed = FALSE;
 		gboolean roaming_allowed = FALSE;
+
+		s_indi_log_ex(cp_name, "PS Call state - [PS_CALL_CONNECT]");
 
 		/* Fetch context with internet/tethering role */
 		l_context = tcore_ps_ref_context_by_id(source, cstatus->context_id);
@@ -678,8 +700,6 @@ enum tcore_hook_return s_indi_on_hook_ps_call_status(Server *server, CoreObject 
 		tcore_storage_set_int(strg_vconf, STORAGE_KEY_PACKET_INDICATOR_STATE, S_INDI_TRANSFER_NORMAL);
 		state_info->cp_trans_state = S_INDI_TRANSFER_NORMAL;
 
-		s_indi_log_ex(cp_name, "PS Call status - [CONNECTED]");
-
 		/* Create new dev state */
 		dev_state = __s_indi_alloc_device_state(co_context, state_info);
 		g_hash_table_insert(state_info->device_info, dev_name, dev_state);
@@ -690,6 +710,8 @@ enum tcore_hook_return s_indi_on_hook_ps_call_status(Server *server, CoreObject 
 	} else if (cstatus->state == S_INDI_PS_CALL_NO_CARRIER) {
 		gchar *dev_name = NULL;
 		GSList *l_context = tcore_ps_ref_context_by_id(source, cstatus->context_id);
+
+		s_indi_log_ex(cp_name, "PS Call state - [PS_CALL_NO_CARRIER]");
 
 		/* Remove all related contexts */
 		while (l_context) {

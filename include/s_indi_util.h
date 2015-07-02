@@ -88,8 +88,8 @@ struct s_indi_cp_state_info_type_struct{
 typedef struct {
 	CoreObject *ps_context;
 	s_indi_cp_state_info_type *parent;
-	unsigned long prev_rx;
-	unsigned long prev_tx;
-	unsigned long curr_rx;
-	unsigned long curr_tx;
+	unsigned long long prev_rx;
+	unsigned long long prev_tx;
+	unsigned long long curr_rx;
+	unsigned long long curr_tx;
 } s_indi_dev_state_info_type;
