@@ -24,36 +24,33 @@
 #include <glib.h>
 #include <gio/gio.h>
 
-#include <dd-display.h>
-#include <vconf.h>
 #include <tcore.h>
 #include <server.h>
-#include <hal.h>
 #include <plugin.h>
 #include <storage.h>
-#include <queue.h>
 #include <co_ps.h>
 #include <co_context.h>
 #include <co_sim.h>
 #include <co_network.h>
 #include <co_call.h>
-#include <at.h>
 
 #include "s_indi_main.h"
 #include "s_indi_util.h"
 #include "s_indi_log.h"
 
 #define S_INDI_UPDATE_INTERVAL		1
-#define S_INDI_NO_RX_PKT_TIMEOUT	60
 #define S_INDI_PROC_FILE			"/proc/net/dev"
 
-#define S_INDI_DB_STORAGE_NAME 				"database"
-#define S_INDI_DB_STORAGE_PATH				"/opt/dbspace/.dnet.db"
-#define S_INDI_VCONF_STORAGE_NAME 			"vconf"
+#define S_INDI_VCONF_STORAGE_NAME		"vconf"
 
 #define S_INDI_ALLOC_USER_DATA(data, plugin, cp) \
 	do { \
 		data = s_indi_malloc0(sizeof(__s_indi_cb_user_data)); \
+		if (data == NULL) { \
+			err("Memory allocation failed!!"); \
+			s_indi_free(cp); \
+			return FALSE; \
+		} \
 		data->indi_plugin = plugin; \
 		data->cp_name = cp; \
 	} while (0)
@@ -70,9 +67,6 @@ typedef struct {
 } __s_indi_cb_user_data;
 
 typedef struct {
-	struct global_data msg_id;
-	gboolean b_pm_lock;
-
 	GHashTable *state_info; /* HashTable of s_indi_cp_state_info_type with key = cp_name */
 
 	GHashTable *vconf_info; /* Mapping of enum tcore_storage_key to cp_name */
@@ -80,19 +74,17 @@ typedef struct {
 
 /***************** HOOKS *****************/
 static enum tcore_hook_return s_indi_on_hook_modem_plugin_removed(Server *server, CoreObject *source,
-		enum tcore_notification_command command, unsigned int data_len, void *data, void *user_data);
+	enum tcore_notification_command command, unsigned int data_len, void *data, void *user_data);
 static enum tcore_hook_return s_indi_on_hook_modem_plugin_added(Server *server, CoreObject *source,
-		enum tcore_notification_command command, unsigned int data_len, void *data, void *user_data);
+	enum tcore_notification_command command, unsigned int data_len, void *data, void *user_data);
 static enum tcore_hook_return s_indi_on_hook_voice_call_status(Server *server, CoreObject *source,
-		enum tcore_notification_command command, unsigned int data_len, void *data, void *user_data);
-static enum tcore_hook_return s_indi_on_hook_sim_init(Server *server, CoreObject *source,
-		enum tcore_notification_command command, unsigned int data_len, void *data, void *user_data);
+	enum tcore_notification_command command, unsigned int data_len, void *data, void *user_data);
 static enum tcore_hook_return s_indi_on_hook_net_register(Server *server, CoreObject *source,
-		enum tcore_notification_command command, unsigned int data_len, void *data, void *user_data);
+	enum tcore_notification_command command, unsigned int data_len, void *data, void *user_data);
 static enum tcore_hook_return s_indi_on_hook_ps_call_status(Server *server, CoreObject *source,
-		enum tcore_notification_command command, unsigned int data_len, void *data, void *user_data);
+	enum tcore_notification_command command, unsigned int data_len, void *data, void *user_data);
 static enum tcore_hook_return s_indi_on_hook_modem_power(Server *server, CoreObject *source,
-		enum tcore_notification_command command, unsigned int data_len, void *data, void *user_data);
+	enum tcore_notification_command command, unsigned int data_len, void *data, void *user_data);
 
 /***************** VCONF Callbacks *****************/
 static void s_indi_storage_key_callback(enum tcore_storage_key key, void *value, void *user_data);
@@ -105,7 +97,6 @@ static void __s_indi_dev_info_value_destroy_notification(gpointer data);
 static inline s_indi_private_info *__s_indi_get_priv_info(TcorePlugin *plugin);
 static gboolean __s_indi_start_updater(TcorePlugin *indi_plugin, gchar *cp_name);
 static gboolean __s_indi_update_callback(__s_indi_cb_user_data *data);
-static void __s_indi_set_dormancy_value(Server *server, s_indi_dormancy_info_type *dormancy_info, enum tcore_storage_key key_fd);
 static void __s_indi_refresh_modems(TcorePlugin *indi_plugin);
 static s_indi_cp_state_info_type *__s_indi_alloc_state_info(CoreObject *co_ps);
 static s_indi_dev_state_info_type *__s_indi_alloc_device_state(CoreObject *ps_context, s_indi_cp_state_info_type *parent);
@@ -115,42 +106,9 @@ static void __s_indi_add_modem_plugin(TcorePlugin *indi_plugin, TcorePlugin *mod
 static void __s_indi_remove_modem_plugin(TcorePlugin *indi_plugin, TcorePlugin *modem_plugin);
 static void __s_indi_register_vconf_key(enum tcore_storage_key key, TcorePlugin *indi_plugin, const char *cp_name);
 static void __s_indi_unregister_vconf_key(enum tcore_storage_key key, TcorePlugin *indi_plugin, const char *cp_name);
-static void __s_indi_process_fast_dormancy(s_indi_cp_state_info_type *state_info, GVariant *value);
-static gboolean __s_indi_cancel_pm_lock(gboolean b_pm_lock);
 static gboolean __s_indi_handle_voice_call_status(Server *server, CoreObject *source,
 	enum tcore_notification_command command, const char *cp_name,
 	s_indi_cp_state_info_type *state_info);
-
-static void __s_indi_deactivate_ps_context (gpointer key, gpointer value, gpointer user_data);
-static gboolean __s_indi_check_fast_dormancy(TcorePlugin *indi_plugin, CoreObject *co_ps, s_indi_dormancy_info_type *dormancy_info, gboolean b_pm_lock);
-
-void __s_indi_process_fast_dormancy(s_indi_cp_state_info_type *state_info, GVariant *value)
-{
-	gboolean fd_set = FALSE;
-	int on_timeout = S_INDI_ZERO;
-	int off_timeout = S_INDI_ZERO;
-
-	if (!g_variant_is_of_type(value, G_VARIANT_TYPE_INT32)) {
-		err("wrong variant data type");
-		return;
-	}
-
-	state_info->dormant_info.b_vconf_checker = TRUE;
-
-	fd_set = g_variant_get_int32(value);
-	dbg("fast dormancy set (%s)", fd_set ? "TRUE" : "FALSE");
-
-	if (fd_set) {
-		on_timeout = S_INDI_FIVE;
-		off_timeout = S_INDI_FIVE;
-	} else {
-		on_timeout = S_INDI_MINUS_ONE;
-		off_timeout = S_INDI_MINUS_ONE;
-	}
-	state_info->dormant_info.lcd_on_timeout = on_timeout;
-	state_info->dormant_info.lcd_off_timeout = off_timeout;
-	state_info->dormant_info.is_dormant_set = fd_set;
-}
 
 void __s_indi_register_vconf_key(enum tcore_storage_key key, TcorePlugin *indi_plugin, const char *cp_name)
 {
@@ -179,7 +137,6 @@ void __s_indi_unregister_vconf_key(enum tcore_storage_key key, TcorePlugin *indi
 void __s_indi_add_modem_plugin(TcorePlugin *indi_plugin, TcorePlugin *modem_plugin)
 {
 	gchar *cp_name = NULL;
-	enum tcore_storage_key vconf_key;
 	s_indi_private_info *priv_info = __s_indi_get_priv_info(indi_plugin);
 
 	/** @todo: It may be possible to use cp_name without duping as well */
@@ -189,22 +146,11 @@ void __s_indi_add_modem_plugin(TcorePlugin *indi_plugin, TcorePlugin *modem_plug
 
 	/** @todo: Check if key-value replacement is the intended behavior */
 	g_hash_table_insert(priv_info->state_info, cp_name, __s_indi_alloc_state_info(__s_indi_fetch_ps_co(modem_plugin)));
-
-	if (s_indi_str_has_suffix(cp_name, "0")) {
-		vconf_key = STORAGE_KEY_TESTMODE_FAST_DORMANCY;
-	} else if (s_indi_str_has_suffix(cp_name, "1")) {
-		vconf_key = STORAGE_KEY_TESTMODE_FAST_DORMANCY2;
-	} else {
-		s_indi_assert_not_reached();
-	}
-
-	__s_indi_register_vconf_key(vconf_key, indi_plugin, cp_name);
 }
 
 void __s_indi_remove_modem_plugin(TcorePlugin *indi_plugin, TcorePlugin *modem_plugin)
 {
 	const char *cp_name = NULL;
-	enum tcore_storage_key vconf_key;
 	s_indi_private_info *priv_info = __s_indi_get_priv_info(indi_plugin);
 
 	cp_name = tcore_server_get_cp_name_by_plugin(modem_plugin);
@@ -213,16 +159,6 @@ void __s_indi_remove_modem_plugin(TcorePlugin *indi_plugin, TcorePlugin *modem_p
 
 	if (g_hash_table_remove(priv_info->state_info, cp_name))
 		s_indi_log_ex(cp_name, "Removed");
-
-	if (s_indi_str_has_suffix(cp_name, "0")) {
-		vconf_key = STORAGE_KEY_TESTMODE_FAST_DORMANCY;
-	} else if (s_indi_str_has_suffix(cp_name, "1")) {
-		vconf_key = STORAGE_KEY_TESTMODE_FAST_DORMANCY2;
-	} else {
-		s_indi_assert_not_reached();
-	}
-
-	__s_indi_unregister_vconf_key(vconf_key, indi_plugin, cp_name);
 }
 
 CoreObject *__s_indi_fetch_ps_co(TcorePlugin *plugin)
@@ -242,24 +178,32 @@ CoreObject *__s_indi_fetch_ps_co(TcorePlugin *plugin)
 s_indi_cp_state_info_type *__s_indi_alloc_state_info(CoreObject *co_ps)
 {
 	s_indi_cp_state_info_type *state_info = s_indi_malloc0(sizeof(s_indi_cp_state_info_type));
+	if (!state_info) {
+		err("Memory allocation failed!!");
+		return NULL;
+	}
 	state_info->co_ps = co_ps;
 	state_info->ps_state = S_INDI_CELLULAR_UNKNOWN;
 	state_info->cp_trans_state = S_INDI_TRANSFER_UNKNOWN;
 	state_info->dormant_info.lcd_state = S_INDI_LCD_UNKNOWN;
-	state_info->dormant_info.lcd_on_timeout = S_INDI_MINUS_ONE;
-	state_info->dormant_info.lcd_off_timeout = S_INDI_MINUS_ONE;
 	state_info->rx_total = S_INDI_ZERO;
 	state_info->tx_total = S_INDI_ZERO;
 	state_info->dormant_info.parent = state_info;
 
 	/* tcore_context_get_ipv4_devname uses glib allocator so key should be freed using g_free() */
-	state_info->device_info = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, __s_indi_dev_info_value_destroy_notification);
+	state_info->device_info = g_hash_table_new_full(g_str_hash, g_str_equal,
+		g_free, __s_indi_dev_info_value_destroy_notification);
 	return state_info;
 }
 
 s_indi_dev_state_info_type *__s_indi_alloc_device_state(CoreObject *ps_context, s_indi_cp_state_info_type *parent)
 {
 	s_indi_dev_state_info_type *dev_state = s_indi_malloc0(sizeof(s_indi_dev_state_info_type));
+	if (dev_state == NULL) {
+		err("Memory allocation failed!!");
+		return NULL;
+	}
+
 	dev_state->ps_context = ps_context;
 	dev_state->parent = parent;
 	return dev_state;
@@ -299,18 +243,6 @@ gboolean __s_indi_start_updater(TcorePlugin *indi_plugin, gchar *cp_name)
 	g_source_attach(state_info->src, NULL);
 	g_source_unref(state_info->src);
 	return TRUE;
-}
-
-gboolean __s_indi_cancel_pm_lock(gboolean b_pm_lock)
-{
-	/* Cancel power lock */
-	if (b_pm_lock) {
-		int rv = S_INDI_ZERO;
-		rv = display_unlock_state(LCD_OFF, PM_RESET_TIMER);
-		dbg("display_unlock_state: rv(%d)", rv);
-	}
-
-	return FALSE;
 }
 
 gboolean __s_indi_update_callback(__s_indi_cb_user_data *data)
@@ -396,6 +328,8 @@ gboolean __s_indi_update_callback(__s_indi_cb_user_data *data)
 
 		/* Terminate to read ifname */
 		entry = strrchr(ifname, ':');
+		if (entry == NULL)
+			goto EXIT;
 		*entry++ = '\0';
 
 		/* Read device_info */
@@ -435,31 +369,14 @@ gboolean __s_indi_update_callback(__s_indi_cb_user_data *data)
 	rx_changes_total = rx_curr_total - rx_prev_total;
 	tx_changes_total = tx_curr_total - tx_prev_total;
 
-	if (rx_changes_total) {
+	if (rx_changes_total)
 		cp_state |= S_INDI_TRANSFER_RX;
-	}
-	if (tx_changes_total) {
+
+	if (tx_changes_total)
 		cp_state |= S_INDI_TRANSFER_TX;
-	}
 
-	/* todo: reduce the number of conditions */
-	if (cp_state == S_INDI_TRANSFER_TX) {
-		state_info->no_rx_pckt++;
-	}
-	else if (cp_state == S_INDI_TRANSFER_NORMAL) {
-		/* todo: why check against 5 */
-		if (state_info->no_rx_pckt > 5) {
-			state_info->no_rx_pckt++;
-		}
-		state_info->dormant_info.dormant_cnt++;
-	}else {
-		state_info->dormant_info.dormant_cnt  = 0;
-		state_info->dormant_info.is_dormant = FALSE;
-	}
-
-	if (cp_state) {
-		s_indi_log_txrx(modem_id, "Transfer State:[%d] rx_cnt:[%d] RX: [%10lu] TX: [%10lu]", cp_state, state_info->no_rx_pckt, rx_changes_total, tx_changes_total);
-	}
+	if (cp_state > 0)
+		s_indi_log_txrx(modem_id, "Transfer State: [%d] RX: [%10lu] TX: [%10lu]", cp_state, rx_changes_total, tx_changes_total);
 
 	if (state_info->dormant_info.lcd_state < S_INDI_LCD_OFF) {
 		if (state_info->cp_trans_state != cp_state) { /* New Transfer State */
@@ -477,13 +394,6 @@ gboolean __s_indi_update_callback(__s_indi_cb_user_data *data)
 		}
 	}
 
-	if (state_info->no_rx_pckt >= S_INDI_NO_RX_PKT_TIMEOUT) {
-		state_info->no_rx_pckt = S_INDI_ZERO;
-		dbg("request to disconnect all ps context");
-		g_hash_table_foreach(state_info->device_info, __s_indi_deactivate_ps_context, state_info->co_ps);
-	}
-
-	priv_info->b_pm_lock = __s_indi_check_fast_dormancy(indi_plugin, state_info->co_ps, &state_info->dormant_info, priv_info->b_pm_lock);
 	fclose(pf);
 	return G_SOURCE_CONTINUE; /* Revisit after S_INDI_UPDATE_INTERVAL */
 
@@ -509,7 +419,7 @@ EXIT:
 		tcore_storage_set_int(strg_vconf, key_total_snt, tcore_storage_get_int(strg_vconf, key_total_snt) + state_info->tx_total);
 
 		/** @todo: VCONF needs upgrade to support llu */
-		s_indi_log_txrx(modem_id, "RX-TOTAL[%d] TX-TOTAL[%d]",
+		s_indi_log_txrx(modem_id, "RX-TOTAL [%d] TX-TOTAL [%d]",
 			tcore_storage_get_int(strg_vconf, key_total_rcv), tcore_storage_get_int(strg_vconf, key_total_snt));
 		state_info->rx_total = S_INDI_ZERO;
 		state_info->tx_total = S_INDI_ZERO;
@@ -517,25 +427,6 @@ EXIT:
 
 	S_INDI_FREE_USER_DATA(data);
 	return G_SOURCE_REMOVE;
-}
-
-static void __s_indi_deactivate_ps_context (gpointer key, gpointer value, gpointer user_data)
-{
-#if 1
-	dbg("Temp Fix: stopping deactivation from indicator ");
-	key = key;
-	value = value;
-	user_data = user_data;
-#else
-	gchar *ifname = key;
-	s_indi_dev_state_info_type *dev_state = value;
-
-	if(dev_state->ps_context && user_data){
-		dbg("Deactivating PS context [%p] which is associated with interface %s", dev_state->ps_context, ifname);
-		tcore_ps_deactivate_context(user_data, dev_state->ps_context, NULL);
-	}
-#endif
-	return;
 }
 
 void __s_indi_state_info_value_destroy_notification(gpointer data)
@@ -572,11 +463,10 @@ void __s_indi_state_info_value_destroy_notification(gpointer data)
 	/* Update VCONF before dying */
 	tcore_storage_set_int(strg_vconf, key_total_rcv, tcore_storage_get_int(strg_vconf, key_total_rcv) + state_info->rx_total);
 	tcore_storage_set_int(strg_vconf, key_total_snt, tcore_storage_get_int(strg_vconf, key_total_snt) + state_info->tx_total);
-	dbg("CP[%s] RX-TOTAL[%10llu] TX-TOTAL[%10llu]", cp_name,
-			tcore_storage_get_int(strg_vconf, key_total_rcv), tcore_storage_get_int(strg_vconf, key_total_snt));
+	dbg("CP [%s] RX-TOTAL [%10llu] TX-TOTAL [%10llu]", cp_name,
+		tcore_storage_get_int(strg_vconf, key_total_rcv), tcore_storage_get_int(strg_vconf, key_total_snt));
 
 OUT:
-	s_indi_free(state_info->dormant_info.mccmnc);
 	s_indi_free(data);
 }
 
@@ -602,177 +492,13 @@ void __s_indi_dev_info_value_destroy_notification(gpointer data)
 void __s_indi_refresh_modems(TcorePlugin *indi_plugin)
 {
 	GSList *mp_list = tcore_server_get_modem_plugin_list(tcore_plugin_ref_server(indi_plugin));
+	GSList *tmp;
 	s_indi_log_v("Processing %u present modems", g_slist_length(mp_list));
 
-	while (mp_list) {
-		__s_indi_add_modem_plugin(indi_plugin, mp_list->data);
-		mp_list = mp_list->next;
-	}
+	for (tmp = mp_list; tmp; tmp = tmp->next)
+		__s_indi_add_modem_plugin(indi_plugin, tmp->data);
 
 	g_slist_free(mp_list);
-}
-
-void __s_indi_set_dormancy_value(Server *server, s_indi_dormancy_info_type *dormancy_info, enum tcore_storage_key key_fd)
-{
-	if (dormancy_info->b_vconf_checker) {
-		Storage *strg_vconf = tcore_server_find_storage(server, S_INDI_VCONF_STORAGE_NAME);
-		gboolean b_fd_force = tcore_storage_get_bool(strg_vconf, key_fd);
-
-		s_indi_assert(NULL != strg_vconf);
-
-		if (b_fd_force) {
-			dbg("forcely enable fast dormancy ");
-			dormancy_info->lcd_on_timeout = S_INDI_FIVE;
-			dormancy_info->lcd_off_timeout = S_INDI_FIVE;
-		} else {
-			dbg("forcely disable fast dormancy ");
-			dormancy_info->lcd_on_timeout = S_INDI_MINUS_ONE;
-			dormancy_info->lcd_off_timeout = S_INDI_MINUS_ONE;
-		}
-	}
-
-	if (!dormancy_info->mccmnc) {
-		dbg("mccmnc is null");
-		return;
-	}
-
-	/** @todo: Make List of blocked mccmnc and use that */
-	/*
-	  * Fast dormancy values are updated currently only for SKT and KT operators in DB.Revisit.
-	  *
-	  */
-	if ((g_strcmp0((const char *)dormancy_info->mccmnc, "00101") == S_INDI_ZERO)
-			|| (g_strcmp0((const char *)dormancy_info->mccmnc, "99999") == S_INDI_ZERO)) {
-		dormancy_info->lcd_on_timeout = S_INDI_ZERO;
-		dormancy_info->lcd_off_timeout = S_INDI_ZERO;
-		dbg("FD does not work in testsim");
-	}
-	else {
-#define szQUERY_SIZE 5000
-		Storage *strg_db;
-		void *db_handle;
-		char szQuery[szQUERY_SIZE];
-		GHashTableIter iter;
-		gpointer key, value;
-		GHashTable *in_param, *out_param;
-
-
-		/* Initialize Storage */
-		strg_db = tcore_server_find_storage(server, S_INDI_DB_STORAGE_NAME);
-		db_handle = tcore_storage_create_handle(strg_db, S_INDI_DB_STORAGE_PATH);
-		if (db_handle == NULL) {
-			err("Failed to get Storage handle");
-			return;
-		}
-
-		/* Initialize parameters */
-		in_param = g_hash_table_new_full(g_str_hash, g_str_equal, NULL, g_free);
-		g_hash_table_insert(in_param, "1", g_strdup(dormancy_info->mccmnc));
-
-		out_param = g_hash_table_new_full(g_str_hash, g_str_equal, NULL, (GDestroyNotify)g_hash_table_destroy);
-
-		memset(szQuery, '\0', szQUERY_SIZE);
-		strcpy(szQuery, "select");
-		strcat(szQuery, " a.dormant_id, a.network_info_id, a.lcd_on_timeout, a.lcd_off_timeout"); //0,1,2,3
-		strcat(szQuery, " from fast_dormancy a, network_info b");
-		strcat(szQuery, " where b.mccmnc= ? and a.network_info_id = b.network_info_id ");
-
-		tcore_storage_read_query_database(strg_db, db_handle, szQuery, in_param, out_param, 4);
-
-		dbg("Get dormancy value");
-		g_hash_table_iter_init(&iter, out_param);
-		while (g_hash_table_iter_next(&iter, &key, &value) == TRUE) {
-			GHashTableIter iter2;
-			gpointer key2, value2;
-
-			if (value) {
-				g_hash_table_iter_init(&iter2, (GHashTable *)value);
-				while (g_hash_table_iter_next(&iter2, &key2, &value2) == TRUE) {
-					if (g_str_equal(key2, "2") == TRUE) {
-						dormancy_info->lcd_on_timeout = atoi((const char*)value2);
-						dbg("lcd on timeout(%d)", dormancy_info->lcd_on_timeout);
-					}
-					else if (g_str_equal(key2, "3") == TRUE) {
-						dormancy_info->lcd_off_timeout = atoi((const char*)value2);
-						dbg("lcd off timeout(%d)", dormancy_info->lcd_off_timeout);
-					}
-				}
-				break;
-			}
-		}
-
-		/* Free resources */
-		g_hash_table_destroy(in_param);
-		g_hash_table_destroy(out_param);
-
-		if(dormancy_info->lcd_on_timeout > 0 || dormancy_info->lcd_off_timeout > 0) {
-			dormancy_info->is_dormant_set = TRUE;
-		}
-
-		/* De-initialize Storage */
-		tcore_storage_remove_handle(strg_db, db_handle);
-	}
-}
-
-static gboolean __s_indi_check_fast_dormancy(TcorePlugin *indi_plugin, CoreObject *co_ps, s_indi_dormancy_info_type *dormancy_info, gboolean b_pm_lock)
-{
-	int rv =0;
-
-	S_INDI_NOT_USED(indi_plugin);
-	S_INDI_NOT_USED(co_ps);
-
-	if(!dormancy_info->is_dormant_set){
-		dormancy_info->dormant_cnt = 0;
-		dormancy_info->is_dormant = FALSE;
-
-		//cancle pm lock
-		b_pm_lock = __s_indi_cancel_pm_lock(b_pm_lock);
-		return b_pm_lock;
-	}
-
-	if(dormancy_info->is_dormant){
-		dormancy_info->dormant_cnt = 0;
-		return b_pm_lock;
-	}
-
-	if(dormancy_info->lcd_state < 3 && dormancy_info->lcd_on_timeout > 0){ //on 1 && dim 2
-
-		//satisfy with fd condition, set fd and cancle the pm lock
-		if(dormancy_info->dormant_cnt >= dormancy_info->lcd_on_timeout){
-			dbg("set lcd on fast dormancy");
-			dormancy_info->dormant_cnt = 0;
-			dormancy_info->is_dormant = TRUE;
-		}
-
-	}
-	else if(dormancy_info->lcd_state < 3 && dormancy_info->lcd_on_timeout <= 0){
-		dormancy_info->dormant_cnt = 0;
-	}
-	else if(dormancy_info->lcd_state == 3 && dormancy_info->lcd_off_timeout > 0){ //off 3
-
-		//call the pm lock state if pkt exist and not dormant state
-		if(dormancy_info->dormant_cnt < dormancy_info->lcd_off_timeout){
-			b_pm_lock = __s_indi_cancel_pm_lock(b_pm_lock);
-			return b_pm_lock;
-		}
-		else if(dormancy_info->dormant_cnt >= dormancy_info->lcd_off_timeout){
-			dbg("set lcd off fast dormancy");
-			dormancy_info->dormant_cnt = 0;
-			dormancy_info->is_dormant = TRUE;
-		}
-	}
-	else if(dormancy_info->lcd_state == 3 && dormancy_info->lcd_off_timeout <= 0){ //off 3
-		dormancy_info->dormant_cnt = 0;
-	}
-
-	//pm unlock
-	if(b_pm_lock){
-		rv = display_unlock_state(LCD_OFF, PM_RESET_TIMER);
-		b_pm_lock = FALSE;
-		dbg("display_unlock_state: rv(%d)", rv);
-	}
-
-	return b_pm_lock;
 }
 
 void s_indi_storage_key_callback(enum tcore_storage_key key, void *value, void *user_data)
@@ -784,49 +510,35 @@ void s_indi_storage_key_callback(enum tcore_storage_key key, void *value, void *
 	s_indi_assert(NULL != tmp);
 
 	switch (key) {
-		case STORAGE_KEY_TESTMODE_FAST_DORMANCY: /* Fall Through */
-		case STORAGE_KEY_TESTMODE_FAST_DORMANCY2:
-		{
-			const gchar *cp_name = NULL;
-			if ((cp_name = g_hash_table_lookup(priv_info->vconf_info, GUINT_TO_POINTER(key))) != NULL)
-				if ((state_info = g_hash_table_lookup(priv_info->state_info, cp_name)) != NULL) {
-					s_indi_log_ex(cp_name, "Processing Fast Dormancy");
+	case STORAGE_KEY_PM_STATE: {
+		GHashTableIter iter;
+		gpointer key, value;
+		gint pm_state = S_INDI_ZERO;
 
-					/*TODO: Currently testmodem fast dormancy is not enabled.so process fast dormancy will not happen */
+		if (!g_variant_is_of_type(tmp, G_VARIANT_TYPE_INT32)) {
+			err("Wrong variant data type");
+			return;
+		}
 
-					__s_indi_process_fast_dormancy(state_info, tmp);
-				}
-		} break;
+		pm_state = g_variant_get_int32(tmp);
 
-		case STORAGE_KEY_PM_STATE:
-		{
-			GHashTableIter iter;
-			gpointer key, value;
-			gint pm_state = S_INDI_ZERO;
+		dbg("PM state Value:[%d]", pm_state);
 
-			if (!g_variant_is_of_type(tmp, G_VARIANT_TYPE_INT32)) {
-				err("Wrong variant data type");
-				return;
-			}
+		g_hash_table_iter_init(&iter, priv_info->state_info);
+		while (g_hash_table_iter_next(&iter, &key, &value)) {
+			state_info = value;
+			state_info->dormant_info.lcd_state = pm_state;
+		}
+	}
+	break;
 
-			pm_state = g_variant_get_int32(tmp);
-
-			dbg("PM state Value:[%d]", pm_state);
-
-			g_hash_table_iter_init(&iter, priv_info->state_info);
-			while (g_hash_table_iter_next (&iter, &key, &value)) {
-				state_info = value;
-				state_info->dormant_info.lcd_state = pm_state;
-			}
-		} break;
-
-		default:
-			s_indi_assert_not_reached();
+	default:
+		s_indi_assert_not_reached();
 	}
 }
 
 enum tcore_hook_return s_indi_on_hook_modem_power(Server *server, CoreObject *source,
-		enum tcore_notification_command command, unsigned int data_len, void *data, void *user_data)
+	enum tcore_notification_command command, unsigned int data_len, void *data, void *user_data)
 {
 	struct tnoti_modem_power *modem_power = data;
 	s_indi_assert(modem_power != NULL);
@@ -854,30 +566,18 @@ enum tcore_hook_return s_indi_on_hook_modem_power(Server *server, CoreObject *so
 
 		/* Remove all device states since PS releasing all contexts */
 		g_hash_table_remove_all(state_info->device_info);
-
-		/* Free MCC/MNC. It will be received again */
-		s_indi_free(state_info->dormant_info.mccmnc);
-		state_info->dormant_info.mccmnc = NULL;
-
-		/* Reset Dormant Information @todo: Why is this required? */
-		state_info->dormant_info.lcd_on_timeout = S_INDI_ZERO;
-		state_info->dormant_info.lcd_off_timeout = S_INDI_ZERO;
-		priv_info->b_pm_lock = __s_indi_cancel_pm_lock(priv_info->b_pm_lock);
 	}
 
 	return TCORE_HOOK_RETURN_CONTINUE;
 }
 
 enum tcore_hook_return s_indi_on_hook_ps_call_status(Server *server, CoreObject *source,
-		enum tcore_notification_command command, unsigned int data_len, void *data, void *user_data)
+	enum tcore_notification_command command, unsigned int data_len, void *data, void *user_data)
 {
 	struct tnoti_ps_call_status *cstatus = data;
 	TcorePlugin *indi_plugin = user_data;
 	const char *cp_name = NULL;
 	s_indi_cp_state_info_type *state_info = NULL;
-	GHashTableIter iter;
-	gpointer cp_name_key, cp_state = NULL;
-	unsigned char active_pdp_count = S_INDI_ZERO;
 	s_indi_private_info *priv_info = __s_indi_get_priv_info(indi_plugin);
 
 	s_indi_assert(cstatus != NULL);
@@ -908,7 +608,7 @@ enum tcore_hook_return s_indi_on_hook_ps_call_status(Server *server, CoreObject 
 		CoreObject *co_context = NULL;
 		gchar *dev_name = NULL;
 		s_indi_dev_state_info_type *dev_state = NULL;
-		enum tcore_storage_key key_service_state, key_fd;
+		enum tcore_storage_key key_service_state;
 		Storage *strg_vconf = NULL;
 		int role = CONTEXT_ROLE_UNKNOWN;
 		gboolean data_allowed = FALSE;
@@ -944,10 +644,8 @@ enum tcore_hook_return s_indi_on_hook_ps_call_status(Server *server, CoreObject 
 		/* Update Cellular State */
 		if (s_indi_str_has_suffix(cp_name, "0")) {
 			key_service_state = STORAGE_KEY_PACKET_SERVICE_STATE;
-			key_fd = STORAGE_KEY_TESTMODE_FAST_DORMANCY;
 		} else if (s_indi_str_has_suffix(cp_name, "1")) {
 			key_service_state = STORAGE_KEY_PACKET_SERVICE_STATE2;
-			key_fd = STORAGE_KEY_TESTMODE_FAST_DORMANCY2;
 		} else {
 			err("Un-handled CP");
 			g_free(dev_name);
@@ -971,7 +669,7 @@ enum tcore_hook_return s_indi_on_hook_ps_call_status(Server *server, CoreObject 
 		if (role == CONTEXT_ROLE_INTERNET || role == CONTEXT_ROLE_TETHERING) {
 			state_info->ps_state = S_INDI_CELLULAR_CONNECTED;
 			tcore_storage_set_int(strg_vconf, key_service_state, S_INDI_CELLULAR_CONNECTED);
-		}else if(role == CONTEXT_ROLE_MMS){
+		} else if (role == CONTEXT_ROLE_MMS) {
 			state_info->ps_state = S_INDI_CELLULAR_MMS_CONNECTED;
 			tcore_storage_set_int(strg_vconf, key_service_state, S_INDI_CELLULAR_MMS_CONNECTED);
 		}
@@ -986,16 +684,10 @@ enum tcore_hook_return s_indi_on_hook_ps_call_status(Server *server, CoreObject 
 		dev_state = __s_indi_alloc_device_state(co_context, state_info);
 		g_hash_table_insert(state_info->device_info, dev_name, dev_state);
 
-		key_fd = key_fd;
-
-		/* Read & Update dormancy values */
-		__s_indi_set_dormancy_value(server, &state_info->dormant_info, key_fd);
-
 		/* Start Updater */
 		__s_indi_start_updater(indi_plugin, s_indi_strdup(cp_name));
 
-	}
-	else if (cstatus->state == S_INDI_PS_CALL_NO_CARRIER) {
+	} else if (cstatus->state == S_INDI_PS_CALL_NO_CARRIER) {
 		gchar *dev_name = NULL;
 		GSList *l_context = tcore_ps_ref_context_by_id(source, cstatus->context_id);
 
@@ -1007,21 +699,6 @@ enum tcore_hook_return s_indi_on_hook_ps_call_status(Server *server, CoreObject 
 				g_free(dev_name);
 			}
 			l_context = l_context->next;
-		}
-
-		g_hash_table_iter_init(&iter, (GHashTable *)priv_info->state_info);
-		while (g_hash_table_iter_next(&iter, &cp_name_key, &cp_state) == TRUE) {
-			s_indi_log_ex(cp_name_key, "State: [0x%x]", cp_state);
-			if (g_hash_table_size(((s_indi_cp_state_info_type *)cp_state)->device_info) != S_INDI_ZERO) {
-				active_pdp_count++;
-				break;
-			}
-		}
-
-		/* Cancel PM Lock if there doens't exist any active PDP connection */
-		if (active_pdp_count == S_INDI_ZERO) {
-			dbg("No Active PDP context. Resetting 'PM Lock' status");
-			priv_info->b_pm_lock = __s_indi_cancel_pm_lock(priv_info->b_pm_lock);
 		}
 	}
 
@@ -1097,12 +774,16 @@ enum tcore_hook_return s_indi_on_hook_net_register(Server *server, CoreObject *s
 		 * Set Cellular state OFF.
 		 */
 		if (state_info->ps_state != S_INDI_CELLULAR_OFF && !roaming_allowed && roaming_status) {
-			tcore_storage_set_int(strg_vconf, key_service_state, S_INDI_CELLULAR_OFF); /* Set Cellular State OFF */
+			/* Set Cellular State OFF */
+			tcore_storage_set_int(strg_vconf, key_service_state, S_INDI_CELLULAR_OFF);
 
-			/*   Indicator need not know worry about roaming status. packet service plugin should take care of de-activating the contexts
-				when roaming is enabled and network enters roaming. When all the contexts associated with that network is de-activated. Indicator
-				plugin will automatically ps status for that CP to S_INDI_CELLULAR_OFF
-			*/
+			/*
+			 * Indicator need not know worry about roaming status. packet service plugin
+			 * should take care of de-activating the contexts when roaming is enabled and
+			 * network enters roaming. When all the contexts associated with that network
+			 * is de-activated. Indicator plugin will automatically ps status for that
+			 * CP to S_INDI_CELLULAR_OFF
+			 */
 			state_info->ps_state = S_INDI_CELLULAR_OFF; /* Update cache */
 
 			s_indi_log_ex(cp_name, "PS Call status - [DISCONNECTED]");
@@ -1138,59 +819,8 @@ enum tcore_hook_return s_indi_on_hook_net_register(Server *server, CoreObject *s
 	return TCORE_HOOK_RETURN_CONTINUE;
 }
 
-enum tcore_hook_return s_indi_on_hook_sim_init(Server *server, CoreObject *source,
-		enum tcore_notification_command command, unsigned int data_len, void *data, void *user_data)
-{
-	struct tnoti_sim_status *sim_data = data;
-	enum tcore_storage_key fd_key;
-	s_indi_assert(NULL != sim_data);
-
-	S_INDI_NOT_USED(command);
-	S_INDI_NOT_USED(data_len);
-
-	CORE_OBJECT_CHECK_RETURN(source, CORE_OBJECT_TYPE_SIM, TCORE_HOOK_RETURN_CONTINUE);
-
-	if (sim_data->sim_status == SIM_STATUS_INIT_COMPLETED) {
-		struct tel_sim_imsi *sim_imsi = NULL;
-		const char *cp_name = NULL;
-		s_indi_cp_state_info_type *state_info = NULL;
-		TcorePlugin *indi_plugin = user_data;
-		s_indi_private_info *priv_info = __s_indi_get_priv_info(indi_plugin);
-
-		cp_name = tcore_server_get_cp_name_by_plugin(tcore_object_ref_plugin(source));
-		s_indi_assert(NULL != cp_name);
-		s_indi_log_ex(cp_name, "SIM_STATUS_INIT_COMPLETED");
-
-		if ((state_info = g_hash_table_lookup(priv_info->state_info, cp_name)) == NULL) {
-			warn("BAILING OUT: [%s] not found", cp_name);
-			return TCORE_HOOK_RETURN_CONTINUE;
-		}
-
-		sim_imsi = tcore_sim_get_imsi(source);
-		s_indi_assert(NULL != sim_imsi);
-		state_info->dormant_info.mccmnc = s_indi_strdup((gchar *)sim_imsi->plmn);
-		free(sim_imsi); /* libc allocator */
-
-		/* Update Cellular State */
-		if (s_indi_str_has_suffix(cp_name, "0")) {
-			fd_key = STORAGE_KEY_TESTMODE_FAST_DORMANCY;
-		} else if (s_indi_str_has_suffix(cp_name, "1")) {
-			fd_key = STORAGE_KEY_TESTMODE_FAST_DORMANCY2;
-		} else {
-			err("Un-handled CP");
-			return TCORE_HOOK_RETURN_CONTINUE;
-		}
-
-		/* Caching the lcdontimer and lcdofftimer dormant values for different network from db */
-		__s_indi_set_dormancy_value(server, &(state_info->dormant_info), fd_key);
-	}
-
-	return TCORE_HOOK_RETURN_CONTINUE;
-}
-
 gboolean __s_indi_handle_voice_call_status(Server *server, CoreObject *source,
-	enum tcore_notification_command command, const char *cp_name,
-	s_indi_cp_state_info_type *state_info)
+	enum tcore_notification_command command, const char *cp_name, s_indi_cp_state_info_type *state_info)
 {
 	CoreObject *co_network = NULL;
 	enum tcore_storage_key vconf_key;
@@ -1228,20 +858,20 @@ gboolean __s_indi_handle_voice_call_status(Server *server, CoreObject *source,
 	tcore_network_get_service_type(co_network, &svc_type);
 
 	switch (svc_type) {
-		case NETWORK_SERVICE_TYPE_2G:
-		case NETWORK_SERVICE_TYPE_2_5G:
-		case NETWORK_SERVICE_TYPE_2_5G_EDGE:
+	case NETWORK_SERVICE_TYPE_2G:
+	case NETWORK_SERVICE_TYPE_2_5G:
+	case NETWORK_SERVICE_TYPE_2_5G_EDGE:
+		show_icon = FALSE;
+	break;
+
+	case NETWORK_SERVICE_TYPE_3G:
+	case NETWORK_SERVICE_TYPE_HSDPA:
+		if (tcore_object_ref_plugin(co_network) != tcore_object_ref_plugin(source))
 			show_icon = FALSE;
-			break;
+	break;
 
-		case NETWORK_SERVICE_TYPE_3G:
-		case NETWORK_SERVICE_TYPE_HSDPA:
-			if (tcore_object_ref_plugin(co_network) != tcore_object_ref_plugin(source))
-				show_icon = FALSE;
-			break;
-
-		default:
-			break;
+	default:
+	break;
 	}
 
 	s_indi_log_ex(cp_name, "RAT: [0x%x], ps_state: [0x%x], show_icon[%d]",
@@ -1255,28 +885,30 @@ gboolean __s_indi_handle_voice_call_status(Server *server, CoreObject *source,
 		return TRUE;
 	}
 
-	switch(command) {
-		case TNOTI_CALL_STATUS_IDLE: {
-			int total_call_cnt = S_INDI_ZERO;
-			total_call_cnt = tcore_call_object_total_length(source);
-			if (total_call_cnt > S_INDI_ONE) {
-				s_indi_log_ex(cp_name, "Call is still connected");
-				return TRUE;
-			}
-			state_info->ps_state = S_INDI_CELLULAR_CONNECTED;
-		} break;
-
-		case TNOTI_CALL_STATUS_DIALING:
-		case TNOTI_CALL_STATUS_INCOMING:
-		case TNOTI_CALL_STATUS_ACTIVE: {
-			state_info->ps_state = S_INDI_CELLULAR_OFF;
-		} break;
-
-		default: {
-			s_indi_log_ex(cp_name, "Unexpected command: [0x%x]", command);
-			s_indi_assert_not_reached();
+	switch (command) {
+	case TNOTI_CALL_STATUS_IDLE: {
+		int total_call_cnt = S_INDI_ZERO;
+		total_call_cnt = tcore_call_object_total_length(source);
+		if (total_call_cnt > S_INDI_ONE) {
+			s_indi_log_ex(cp_name, "Call is still connected");
 			return TRUE;
 		}
+		state_info->ps_state = S_INDI_CELLULAR_CONNECTED;
+	}
+	break;
+
+	case TNOTI_CALL_STATUS_DIALING:
+	case TNOTI_CALL_STATUS_INCOMING:
+	case TNOTI_CALL_STATUS_ACTIVE: {
+		state_info->ps_state = S_INDI_CELLULAR_OFF;
+	}
+	break;
+
+	default: {
+		s_indi_log_ex(cp_name, "Unexpected command: [0x%x]", command);
+		s_indi_assert_not_reached();
+		return TRUE;
+	}
 	}
 
 OUT:
@@ -1284,16 +916,17 @@ OUT:
 	strg_vconf = tcore_server_find_storage(server, S_INDI_VCONF_STORAGE_NAME);
 	if (state_info->ps_state != tcore_storage_get_int(strg_vconf, vconf_key)) {
 		tcore_storage_set_int(strg_vconf, vconf_key, state_info->ps_state);
-		s_indi_log_ex(cp_name, "PS Call status - [%s]", (state_info->ps_state == S_INDI_CELLULAR_CONNECTED ? "CONNECTED"
-						: (state_info->ps_state == S_INDI_CELLULAR_OFF ? "DISCONNECTED"
-						: (state_info->ps_state == S_INDI_CELLULAR_USING ? "IN USE" : "UNKNOWN"))));
+		s_indi_log_ex(cp_name, "PS Call status - [%s]",
+			(state_info->ps_state == S_INDI_CELLULAR_CONNECTED ? "CONNECTED"
+			: (state_info->ps_state == S_INDI_CELLULAR_OFF ? "DISCONNECTED"
+			: (state_info->ps_state == S_INDI_CELLULAR_USING ? "IN USE" : "UNKNOWN"))));
 	}
 
 	return TRUE;
 }
 
 enum tcore_hook_return s_indi_on_hook_voice_call_status(Server *server, CoreObject *source,
-		enum tcore_notification_command command, unsigned int data_len, void *data, void *user_data)
+	enum tcore_notification_command command, unsigned int data_len, void *data, void *user_data)
 {
 	TcorePlugin *indi_plugin = user_data;
 	s_indi_private_info *priv_info = __s_indi_get_priv_info(indi_plugin);
@@ -1310,7 +943,7 @@ enum tcore_hook_return s_indi_on_hook_voice_call_status(Server *server, CoreObje
 
 	/* Update all modem states */
 	g_hash_table_iter_init(&iter, priv_info->state_info);
-	while (g_hash_table_iter_next (&iter, &key, &value)) {
+	while (g_hash_table_iter_next(&iter, &key, &value)) {
 		cp_name = key;
 		state_info = value;
 
@@ -1322,7 +955,7 @@ enum tcore_hook_return s_indi_on_hook_voice_call_status(Server *server, CoreObje
 }
 
 enum tcore_hook_return s_indi_on_hook_modem_plugin_added(Server *server, CoreObject *source,
-		enum tcore_notification_command command, unsigned int data_len, void *data, void *user_data)
+	enum tcore_notification_command command, unsigned int data_len, void *data, void *user_data)
 {
 	s_indi_assert(NULL != data);
 	s_indi_assert(NULL != user_data);
@@ -1338,7 +971,7 @@ enum tcore_hook_return s_indi_on_hook_modem_plugin_added(Server *server, CoreObj
 }
 
 enum tcore_hook_return s_indi_on_hook_modem_plugin_removed(Server *server, CoreObject *source,
-		enum tcore_notification_command command, unsigned int data_len, void *data, void *user_data)
+	enum tcore_notification_command command, unsigned int data_len, void *data, void *user_data)
 {
 	s_indi_assert(NULL != data);
 	s_indi_assert(NULL != user_data);
@@ -1359,6 +992,10 @@ gboolean s_indi_init(TcorePlugin *plugin)
 	s_indi_private_info *priv_info = NULL;
 
 	priv_info = s_indi_malloc0(sizeof(*priv_info));
+	if (priv_info == NULL) {
+		err("Memory allocation failed!!");
+		return FALSE;
+	}
 	if (tcore_plugin_link_user_data(plugin, priv_info) != TCORE_RETURN_SUCCESS) {
 		err("Failed to link private data");
 		s_indi_free(priv_info);
@@ -1367,24 +1004,17 @@ gboolean s_indi_init(TcorePlugin *plugin)
 
 	server = tcore_plugin_ref_server(plugin);
 
-	/* Initialize SIPC counter */
-	priv_info->msg_id.id_current = S_INDI_SIPC_ITER_START - S_INDI_ONE;
-	priv_info->msg_id.id_start = S_INDI_SIPC_ITER_START;
-	priv_info->msg_id.id_end = S_INDI_SIPC_ITER_END;
-
 	/* Initialize VCONF => CP_NAME mapping */
 	priv_info->vconf_info = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, s_indi_free_func);
 
 	/* Initialize State Information */
-	priv_info->state_info = g_hash_table_new_full(g_str_hash, g_str_equal, s_indi_free_func, __s_indi_state_info_value_destroy_notification);
-
+	priv_info->state_info = g_hash_table_new_full(g_str_hash, g_str_equal,
+		s_indi_free_func, __s_indi_state_info_value_destroy_notification);
 	if (priv_info->state_info == NULL
 		|| priv_info->vconf_info == NULL) {
 		err("Memory allocation problem! Bailing Out");
 		goto OUT;
 	}
-
-	priv_info->b_pm_lock = FALSE;
 
 	/* Register vconf key callbacks */
 	__s_indi_register_vconf_key(STORAGE_KEY_PM_STATE, plugin, NULL);
@@ -1393,7 +1023,6 @@ gboolean s_indi_init(TcorePlugin *plugin)
 	tcore_server_add_notification_hook(server, TNOTI_MODEM_POWER, s_indi_on_hook_modem_power, plugin);
 	tcore_server_add_notification_hook(server, TNOTI_PS_CALL_STATUS, s_indi_on_hook_ps_call_status, plugin);
 	tcore_server_add_notification_hook(server, TNOTI_NETWORK_REGISTRATION_STATUS, s_indi_on_hook_net_register, plugin);
-	tcore_server_add_notification_hook(server, TNOTI_SIM_STATUS, s_indi_on_hook_sim_init, plugin);
 
 	/* For 2G PS suspend/resume */
 	tcore_server_add_notification_hook(server, TNOTI_CALL_STATUS_IDLE, s_indi_on_hook_voice_call_status, plugin);
@@ -1428,7 +1057,6 @@ void s_indi_deinit(TcorePlugin *plugin)
 	tcore_server_remove_notification_hook(server, s_indi_on_hook_modem_power);
 	tcore_server_remove_notification_hook(server, s_indi_on_hook_ps_call_status);
 	tcore_server_remove_notification_hook(server, s_indi_on_hook_net_register);
-	tcore_server_remove_notification_hook(server, s_indi_on_hook_sim_init);
 	tcore_server_remove_notification_hook(server, s_indi_on_hook_voice_call_status);
 	tcore_server_remove_notification_hook(server, s_indi_on_hook_modem_plugin_added);
 	tcore_server_remove_notification_hook(server, s_indi_on_hook_modem_plugin_removed);

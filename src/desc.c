@@ -38,11 +38,10 @@ static gboolean on_init(TcorePlugin *plugin)
 	s_indi_assert(NULL != plugin);
 
 	result = s_indi_init(plugin);
-	if (result == FALSE) {
+	if (result == FALSE)
 		err("Failed intializing the plugin");
-	} else {
+	else
 		dbg("indicator-plugin INIT SUCCESS");
-	}
 
 	return result;
 }
@@ -55,8 +54,7 @@ static void on_unload(TcorePlugin *plugin)
 	dbg("indicator-plugin UNLOAD COMPLETE");
 }
 
-EXPORT_API struct tcore_plugin_define_desc plugin_define_desc =
-{
+EXPORT_API struct tcore_plugin_define_desc plugin_define_desc = {
 	.name = "INDICATOR",
 	.priority = TCORE_PLUGIN_PRIORITY_MID + 2,
 	.version = PLUGIN_VERSION,

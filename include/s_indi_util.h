@@ -23,7 +23,7 @@
 
 #define s_indi_assert(cond) g_assert(cond)
 #define s_indi_assert_not_reached() g_assert_not_reached()
-#define s_indi_malloc0(sz) g_malloc0(sz)
+#define s_indi_malloc0(sz) g_try_malloc0(sz)
 #define s_indi_free_func g_free
 #define s_indi_free(p) s_indi_free_func(p)
 #define s_indi_strdup(str) g_strdup(str)
@@ -32,11 +32,8 @@
 #define S_INDI_ZERO (0)
 #define S_INDI_ONE (1)
 #define S_INDI_FIVE (5)
-#define S_INDI_SIPC_ITER_START S_INDI_ONE
-#define S_INDI_SIPC_ITER_END (255)
 #define S_INDI_MINUS_ONE (-1)
 #define S_INDI_NOT_USED(var) ((var) = (var))
-#define S_INDI_SIPC_MSG_ID(hdr)				((hdr).main_cmd << 8 | (hdr).sub_cmd)
 
 typedef enum {
 	S_INDI_CELLULAR_UNKNOWN = -1,
@@ -67,22 +64,9 @@ typedef enum {
 	S_INDI_PS_CALL_NO_CARRIER = 0x03,
 } s_indi_ps_call_state;
 
-struct global_data {
-	unsigned int id_current;
-	unsigned int id_start;
-	unsigned int id_end;
-};
-
 typedef struct s_indi_cp_state_info_type_struct s_indi_cp_state_info_type;
 typedef struct {
-	gchar *mccmnc;
-	gboolean b_vconf_checker;
 	s_indi_lcd_state lcd_state;
-	int lcd_on_timeout;
-	int lcd_off_timeout;
-	int dormant_cnt;
-	gboolean is_dormant;
-	gboolean is_dormant_set;
 	s_indi_cp_state_info_type *parent;
 } s_indi_dormancy_info_type;
 

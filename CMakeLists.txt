@@ -6,7 +6,7 @@ SET(LIBDIR ${LIB_INSTALL_DIR})
 
 ### Set required packages ###
 INCLUDE(FindPkgConfig)
-pkg_check_modules(pkgs REQUIRED glib-2.0 dlog deviced tcore vconf)
+pkg_check_modules(pkgs REQUIRED glib-2.0 dlog tcore)
 
 FOREACH(flag ${pkgs_CFLAGS})
     SET(EXTRA_CFLAGS "${EXTRA_CFLAGS} ${flag}")
