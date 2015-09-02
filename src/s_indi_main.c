@@ -114,6 +114,10 @@ void __s_indi_register_vconf_key(enum tcore_storage_key key, TcorePlugin *indi_p
 {
 	s_indi_private_info *priv_info = __s_indi_get_priv_info(indi_plugin);
 	Storage *strg_vconf = tcore_server_find_storage(tcore_plugin_ref_server(indi_plugin), S_INDI_VCONF_STORAGE_NAME);
+	if (priv_info == NULL) {
+		err("priv_info is NULL!!!");
+		return;
+	}
 	s_indi_assert(NULL != strg_vconf);
 
 	/** NULL cp_name: subscription independent vconf key */
@@ -126,6 +130,10 @@ void __s_indi_unregister_vconf_key(enum tcore_storage_key key, TcorePlugin *indi
 {
 	s_indi_private_info *priv_info = __s_indi_get_priv_info(indi_plugin);
 	Storage *strg_vconf = tcore_server_find_storage(tcore_plugin_ref_server(indi_plugin), S_INDI_VCONF_STORAGE_NAME);
+	if (priv_info == NULL) {
+		err("priv_info is NULL!!!");
+		return;
+	}
 	s_indi_assert(NULL != strg_vconf);
 
 	/** NULL cp_name: subscription independent vconf key */
@@ -138,6 +146,10 @@ void __s_indi_add_modem_plugin(TcorePlugin *indi_plugin, TcorePlugin *modem_plug
 {
 	gchar *cp_name = NULL;
 	s_indi_private_info *priv_info = __s_indi_get_priv_info(indi_plugin);
+	if (priv_info == NULL) {
+		err("priv_info is NULL!!!");
+		return;
+	}
 
 	/** @todo: It may be possible to use cp_name without duping as well */
 	cp_name = s_indi_strdup(tcore_server_get_cp_name_by_plugin(modem_plugin));
@@ -152,10 +164,14 @@ void __s_indi_remove_modem_plugin(TcorePlugin *indi_plugin, TcorePlugin *modem_p
 {
 	const char *cp_name = NULL;
 	s_indi_private_info *priv_info = __s_indi_get_priv_info(indi_plugin);
+	if (priv_info == NULL) {
+		err("priv_info is NULL!!!");
+		return;
+	}
+	s_indi_assert(NULL != priv_info->state_info);
 
 	cp_name = tcore_server_get_cp_name_by_plugin(modem_plugin);
 	s_indi_assert(NULL != cp_name);
-	s_indi_assert(NULL != priv_info->state_info);
 
 	if (g_hash_table_remove(priv_info->state_info, cp_name))
 		s_indi_log_ex(cp_name, "Removed");
@@ -221,6 +237,10 @@ gboolean __s_indi_start_updater(TcorePlugin *indi_plugin, gchar *cp_name)
 	__s_indi_cb_user_data *cb_data = NULL;
 	s_indi_cp_state_info_type *state_info = NULL;
 	s_indi_private_info *priv_info = __s_indi_get_priv_info(indi_plugin);
+	if (priv_info == NULL) {
+		err("priv_info is NULL!!!");
+		return FALSE;
+	}
 
 	if ((state_info = g_hash_table_lookup(priv_info->state_info, cp_name)) == NULL) {
 		warn("CP [%s] Not Present", cp_name);
@@ -262,6 +282,11 @@ gboolean __s_indi_update_callback(__s_indi_cb_user_data *data)
 	enum tcore_storage_key key_last_rcv, key_last_snt, key_total_rcv, key_total_snt, key_service_state;
 	s_indi_private_info *priv_info = __s_indi_get_priv_info(indi_plugin);
 	Storage *strg_vconf = NULL;
+
+	if (priv_info == NULL) {
+		err("priv_info is NULL!!!");
+		return G_SOURCE_REMOVE;
+	}
 
 	/* VCONF Mapper */
 	if (s_indi_str_has_suffix(cp_name, "0")) {
@@ -524,6 +549,10 @@ void s_indi_storage_key_callback(enum tcore_storage_key key, void *value, void *
 	s_indi_cp_state_info_type *state_info = NULL;
 	GVariant *tmp = value;
 	s_indi_private_info *priv_info = __s_indi_get_priv_info(user_data);
+	if (priv_info == NULL) {
+		err("priv_info is NULL!!!");
+		return;
+	}
 
 	s_indi_assert(NULL != tmp);
 
@@ -572,6 +601,10 @@ enum tcore_hook_return s_indi_on_hook_modem_power(Server *server, CoreObject *so
 		const char *cp_name = NULL;
 		s_indi_cp_state_info_type *state_info = NULL;
 		s_indi_private_info *priv_info = __s_indi_get_priv_info(indi_plugin);
+		if (priv_info == NULL) {
+			err("priv_info is NULL!!!");
+			return TCORE_HOOK_RETURN_CONTINUE;
+		}
 
 		cp_name = tcore_server_get_cp_name_by_plugin(tcore_object_ref_plugin(source));
 		s_indi_assert(NULL != cp_name);
@@ -597,6 +630,10 @@ enum tcore_hook_return s_indi_on_hook_ps_call_status(Server *server, CoreObject 
 	const char *cp_name = NULL;
 	s_indi_cp_state_info_type *state_info = NULL;
 	s_indi_private_info *priv_info = __s_indi_get_priv_info(indi_plugin);
+	if (priv_info == NULL) {
+		err("priv_info is NULL!!!");
+		return TCORE_HOOK_RETURN_CONTINUE;
+	}
 
 	s_indi_assert(cstatus != NULL);
 
@@ -742,6 +779,10 @@ enum tcore_hook_return s_indi_on_hook_net_register(Server *server, CoreObject *s
 	S_INDI_NOT_USED(command);
 	S_INDI_NOT_USED(data_len);
 	CORE_OBJECT_CHECK_RETURN(source, CORE_OBJECT_TYPE_NETWORK, TCORE_HOOK_RETURN_CONTINUE);
+	if (priv_info == NULL) {
+		err("priv_info is NULL!!!");
+		return TCORE_HOOK_RETURN_CONTINUE;
+	}
 
 	cp_name = tcore_server_get_cp_name_by_plugin(tcore_object_ref_plugin(source));
 	s_indi_assert(NULL != cp_name);
@@ -962,6 +1003,10 @@ enum tcore_hook_return s_indi_on_hook_voice_call_status(Server *server, CoreObje
 	S_INDI_NOT_USED(data);
 
 	CORE_OBJECT_CHECK_RETURN(source, CORE_OBJECT_TYPE_CALL, TCORE_HOOK_RETURN_CONTINUE);
+	if (priv_info == NULL) {
+		err("priv_info is NULL!!!");
+		return TCORE_HOOK_RETURN_CONTINUE;
+	}
 
 	/* Update all modem states */
 	g_hash_table_iter_init(&iter, priv_info->state_info);
@@ -1087,6 +1132,10 @@ void s_indi_deinit(TcorePlugin *plugin)
 	__s_indi_unregister_vconf_key(STORAGE_KEY_PM_STATE, plugin, NULL);
 
 	/* Destroy all watched modems */
+	if (priv_info == NULL) {
+		err("priv_info is NULL!!!");
+		return;
+	}
 	iter = g_hash_table_get_values(priv_info->state_info);
 	while (iter) {
 		state_info = iter->data;
