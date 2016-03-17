@@ -1,6 +1,6 @@
 %define major 0
 %define minor 1
-%define patchlevel 68
+%define patchlevel 69
 
 Name:           tel-plugin-indicator
 Version:        %{major}.%{minor}.%{patchlevel}
@@ -9,6 +9,11 @@ License:        Apache-2.0
 Summary:        Telephony Indicator plugin
 Group:          System/Libraries
 Source0:        tel-plugin-indicator-%{version}.tar.gz
+
+%if "%{profile}" == "tv"
+ExcludeArch: %{arm} %ix86 x86_64
+%endif
+
 BuildRequires:  cmake
 BuildRequires:  pkgconfig(dlog)
 BuildRequires:  pkgconfig(glib-2.0)
