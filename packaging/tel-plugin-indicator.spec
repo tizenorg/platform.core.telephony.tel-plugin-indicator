@@ -1,6 +1,6 @@
 %define major 0
 %define minor 1
-%define patchlevel 69
+%define patchlevel 70
 
 Name:           tel-plugin-indicator
 Version:        %{major}.%{minor}.%{patchlevel}
@@ -48,6 +48,6 @@ cp LICENSE %{buildroot}/usr/share/license/%{name}
 
 %files
 %manifest tel-plugin-indicator.manifest
-%defattr(644,system,system,-)
+%defattr(644,root,root,-)
 %{_libdir}/telephony/plugins/indicator-plugin*
 /usr/share/license/%{name}
